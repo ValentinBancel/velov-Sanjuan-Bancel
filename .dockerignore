@@ -1,0 +1,14 @@
+# Liste blanche : on exclut tout, puis on autorise uniquement ce dont l'image a besoin.
+# Évite d'embarquer .git, .env, .venv, données brutes, notebooks ou caches.
+*
+
+!requirements.txt
+!pyproject.toml
+!src/velov/**/*.py
+
+# Artefact du modèle servi (pas les données d'entraînement)
+!models/model.joblib
+!models/metadata.json
+
+**/__pycache__
+**/*.pyc
