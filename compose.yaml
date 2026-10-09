@@ -1,0 +1,28 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: velov
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-velov}
+      POSTGRES_DB: velov
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U velov -d velov"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    image: velov-api
+    environment:
+      DATABASE_URL: postgresql://velov:${POSTGRES_PASSWORD:-velov}@db:5432/velov
+    ports:
+      - "${API_PORT:-8001}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

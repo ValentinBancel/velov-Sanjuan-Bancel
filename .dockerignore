@@ -1,14 +1,22 @@
 # Liste blanche : on exclut tout, puis on autorise uniquement ce dont l'image a besoin.
-# Évite d'embarquer .git, .env, .venv, données brutes, notebooks ou caches.
+# Évite d'embarquer .git, .env, .venv, données brutes, notebooks, tests, docs ou caches.
+# (Dockerfile, compose.yaml et .dockerignore restent lisibles par le client de build
+#  mais ne sont pas copiés dans le contexte envoyé au daemon.)
 *
 
+# Dépendances et métadonnées du package
 !requirements.txt
 !pyproject.toml
+
+# Code applicatif uniquement
 !src/velov/**/*.py
 
 # Artefact du modèle servi (pas les données d'entraînement)
 !models/model.joblib
 !models/metadata.json
 
+# Ré-exclusions finales (prioritaires sur les ! ci-dessus)
 **/__pycache__
 **/*.pyc
+**/*.egg-info
+**/.env*

@@ -14,16 +14,17 @@ Lancement :
 
 from __future__ import annotations
 
-import os
 import json
 import logging
-import pandas as pd
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import joblib
+import pandas as pd
 from fastapi import FastAPI, HTTPException
 
+from velov.api import db
 from velov.api.schemas import PredictionRequest, PredictionResponse  # noqa: F401
 from velov.features import FEATURES, add_features  # noqa: F401
 from velov.train import METADATA_FILENAME, sha256_of
@@ -31,7 +32,7 @@ from velov.train import METADATA_FILENAME, sha256_of
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("velov.api")
 
-STATE: dict = {"model": None, "metadata": None}
+STATE: dict = {"model": None, "metadata": None, "pool": None}
 
 
 def load_model(model_dir: Path) -> tuple[object, dict]:
@@ -55,8 +56,14 @@ async def lifespan(app: FastAPI):
         logger.info("Modèle %s chargé", STATE["metadata"]["model_version"])
     except Exception:
         logger.exception("Échec du chargement du modèle depuis %s", model_dir)
+    try:
+        STATE["pool"] = await db.open_pool()
+    except Exception:
+        logger.exception("Échec de connexion à PostgreSQL : prédictions non enregistrées")
     yield
-    STATE.update(model=None, metadata=None)
+    if STATE["pool"] is not None:
+        await STATE["pool"].close()
+    STATE.update(model=None, metadata=None, pool=None)
 
 
 app = FastAPI(title="Vélo'v availability API", version="1.0.0", lifespan=lifespan)
@@ -93,17 +100,23 @@ async def predict(request: PredictionRequest):
     if STATE["model"] is None:
         raise HTTPException(status_code=503, detail="Modèle non chargé")
 
-    df = pd.DataFrame([request.dict()])
+    df = pd.DataFrame([request.model_dump()])
     df = add_features(df)
     X = df[FEATURES]
 
     y_pred = STATE["model"].predict(X)
     y_pred_bounded = max(0, min(y_pred[0], request.capacity))
     target_timestamp = request.timestamp + pd.Timedelta(hours=1)
-    return PredictionResponse(
+    response = PredictionResponse(
         station_id=request.station_id,
         target_timestamp=target_timestamp,
         predicted_bikes=y_pred_bounded,
         model_version=STATE["metadata"]["model_version"],
     )
+    if STATE["pool"] is not None:
+        try:
+            await db.save_prediction(STATE["pool"], request, response)
+        except Exception:
+            logger.exception("Échec de l'enregistrement de la prédiction")
+    return response
     
