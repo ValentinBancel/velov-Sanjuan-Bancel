@@ -48,6 +48,19 @@ curl -X POST http://127.0.0.1:8000/v1/predict \
 Le `timestamp` doit porter un fuseau (`+02:00`, `Z`...) : sans fuseau, l'API répond 422.
 Les instants sont renvoyés et journalisés en UTC (`"target_timestamp": "2026-10-06T07:00:00Z"`).
 
+## Avec Docker (S2)
+
+```bash
+cp .env.example .env                 # puis choisir un vrai mot de passe dans .env
+python -m velov.data && python -m velov.train   # l'image embarque models/ : entraîner d'abord
+docker compose up --build -d         # API + PostgreSQL
+docker compose ps                    # api et db doivent être "healthy"
+curl http://127.0.0.1:8001/ready     # port réglable avec API_PORT dans .env
+./scripts/build.sh                   # image taguée <version du modèle>-<commit>
+```
+
+Sans `POSTGRES_PASSWORD` dans `.env`, `docker compose up` refuse de démarrer (aucun mot de passe par défaut, EX-06).
+
 ## Exigences du projet
 
 Le service doit respecter les exigences de [docs/exigences.md](docs/exigences.md), de S1 à S9.

@@ -3,7 +3,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: velov
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-velov}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Definir POSTGRES_PASSWORD dans .env (voir .env.example)}
       POSTGRES_DB: velov
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -12,17 +12,19 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
 
   api:
     build: .
     image: velov-api
     environment:
-      DATABASE_URL: postgresql://velov:${POSTGRES_PASSWORD:-velov}@db:5432/velov
+      DATABASE_URL: postgresql://velov:${POSTGRES_PASSWORD:?Definir POSTGRES_PASSWORD dans .env (voir .env.example)}@db:5432/velov
     ports:
       - "${API_PORT:-8001}:8000"
     depends_on:
       db:
         condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   pgdata:

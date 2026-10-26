@@ -12,5 +12,24 @@ models/*
 mlflow.db
 mlruns/
 
+# Build Python
+*.egg-info/
+build/
+dist/
+
+# Pipeline de données (S3) : base et sorties dbt régénérables
+*.duckdb
+*.duckdb.wal
+velov_dbt/target/
+velov_dbt/logs/
+velov_dbt/dbt_packages/
+
+# Système / éditeurs
+.DS_Store
+.idea/
+.vscode/
+
 # Secrets
 .env
+.env.*
+!.env.example
