@@ -65,7 +65,7 @@ async def save_prediction(pool: AsyncConnectionPool, request: PredictionRequest,
                 request.capacity,
                 request.bikes_available,
                 request.temperature,
-                request.is_raining,
+                int(request.is_raining),  # colonne SMALLINT
                 response.predicted_bikes,
                 response.model_version,
             ),
