@@ -17,6 +17,9 @@ qui dit oui ou non.
 | EX-07 | Les erreurs importantes sont observables dans les logs | Modèle non chargé, base indisponible : la cause est lisible dans les logs (terminal uvicorn en S1, `docker compose logs` en S2) | S1, S2 |
 | EX-08 | Chaque prédiction est traçable | Entrées, sortie, version du modèle et horodatage UTC journalisés en base | S2 |
 | EX-09 | Un autre binôme peut exploiter le service avec le README et le runbook | Revue croisée : démarrer, vérifier la santé, arrêter, diagnostiquer `/ready` en 503 | S2, S9 |
+| EX-10 | Rejouer le pipeline sur une même période ne change pas la table gold | `pytest tests/test_pipeline.py::test_rerun_leaves_gold_unchanged` ; `python -m velov.ingest` deux fois : `0 fichiers écrits` la seconde | S3 |
+| EX-11 | Aucune feature n'utilise une information postérieure à l'instant de prédiction | `pytest tests/test_pipeline.py::test_gold_never_uses_a_snapshot_after_the_prediction_time` (un instantané postérieur à H est piégé dans le bronze) | S3 |
+| EX-12 | Une table gold qui viole le contrat n'est jamais publiée | `dbt build` échoue (contrat `enforced`, tests, seuil `gold_keeps_enough_rows`) ; `train` refuse via Pandera : `pytest tests/test_contract.py`, `tests/test_pipeline.py::test_build_fails_when_the_join_drops_too_many_rows` | S3 |
 
 ## Conventions associées
 
