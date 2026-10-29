@@ -1,0 +1,25 @@
+name: velov_dbt
+version: "1.0.0"
+config-version: 2
+profile: velov_dbt
+
+model-paths: ["models"]
+
+vars:
+  # Chemin du bronze, relatif au dossier d'où l'on lance dbt (la racine du dépôt).
+  bronze_dir: data/bronze
+  # Un instantané n'est retenu pour l'heure H que s'il a été pris au plus tard à H, et au plus
+  # max_lag_minutes avant (EX-11 : jamais d'information postérieure à l'instant de prédiction).
+  max_lag_minutes: 15
+  # Seuil de qualité : au plus cette part des candidats station x heure peut être écartée entre silver et gold
+  # (météo manquante, capacité inconnue, valeurs impossibles). Au-delà, dbt build échoue : la collecte a un problème.
+  max_dropped_ratio: 0.05
+
+models:
+  velov_dbt:
+    silver:
+      +materialized: table
+      +schema: silver
+    gold:
+      +materialized: table
+      +schema: gold

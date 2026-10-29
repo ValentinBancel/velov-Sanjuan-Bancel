@@ -1,0 +1,41 @@
+version: 2
+
+models:
+  - name: silver_station_status
+    description: Un instantané GBFS station_status déplié, typé et dédoublonné (une ligne par station et instantané).
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [station_id, snapshot_at]
+    columns:
+      - name: station_id
+        data_tests: [not_null]
+      - name: snapshot_at
+        data_tests: [not_null]
+      - name: bikes_available
+        data_tests: [not_null]
+
+  - name: silver_station_information
+    description: Capacité des stations (une ligne par station et instantané).
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [station_id, snapshot_at]
+    columns:
+      - name: station_id
+        data_tests: [not_null]
+      - name: capacity
+        data_tests: [not_null]
+
+  - name: silver_weather
+    description: Météo (format provisoire), une ligne par instant de relevé.
+    columns:
+      - name: observed_at
+        data_tests: [not_null, unique]
+
+  - name: silver_station_hourly
+    description: Candidats gold, le dernier instantané pris au plus tard à H pour chaque (station, heure H).
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [station_id, hour_at]

@@ -1,0 +1,63 @@
+version: 2
+
+models:
+  - name: gold_velov_hourly
+    description: >-
+      Data contract du projet : une ligne par station et par heure (UTC), sans information
+      postérieure à l'instant de l'observation.
+    config:
+      contract:
+        enforced: true
+    data_tests:
+      # Une ligne par station et par heure (EX-10 : un rejeu ne peut pas dupliquer).
+      - unique_combination:
+          arguments:
+            columns: [station_id, timestamp]
+      # Anomalies de capacité : on les voit dès la première (warn), on bloque au-delà du seuil.
+      - bikes_within_capacity:
+          arguments:
+            max_violation_ratio: 0
+          config:
+            severity: warn
+      - bikes_within_capacity:
+          arguments:
+            max_violation_ratio: 0.01
+          config:
+            severity: error
+    columns:
+      - name: station_id
+        data_type: integer
+        constraints:
+          - type: not_null
+        data_tests:
+          - not_null
+          # Toute station de gold doit être décrite dans station_information.
+          - relationships:
+              arguments:
+                to: ref('silver_station_information')
+                field: station_id
+      - name: timestamp
+        data_type: timestamp with time zone
+        constraints:
+          - type: not_null
+        data_tests: [not_null]
+      - name: capacity
+        data_type: integer
+        constraints:
+          - type: not_null
+        data_tests: [not_null]
+      - name: bikes_available
+        data_type: integer
+        constraints:
+          - type: not_null
+        data_tests: [not_null]
+      - name: temperature
+        data_type: double
+        constraints:
+          - type: not_null
+        data_tests: [not_null]
+      - name: is_raining
+        data_type: boolean
+        constraints:
+          - type: not_null
+        data_tests: [not_null]

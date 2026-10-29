@@ -23,6 +23,7 @@ dist/
 velov_dbt/target/
 velov_dbt/logs/
 velov_dbt/dbt_packages/
+velov_dbt/.user.yml
 
 # Système / éditeurs
 .DS_Store

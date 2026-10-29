@@ -1,0 +1,12 @@
+# Profil versionné (aucun secret : DuckDB est un fichier local).
+# Usage depuis la racine du dépôt : dbt build --project-dir velov_dbt --profiles-dir velov_dbt
+velov_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      # VELOV_DUCKDB permet aux tests de viser une base jetable ; défaut : la base du projet.
+      path: "{{ env_var('VELOV_DUCKDB', 'data/velov.duckdb') }}"
+      threads: 1
+      settings:
+        TimeZone: UTC
