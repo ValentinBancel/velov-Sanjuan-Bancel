@@ -49,7 +49,10 @@ MODEL_FILENAME = "model.joblib"
 METADATA_FILENAME = "metadata.json"
 GOLD_TABLE = "gold.gold_velov_hourly"
 DEFAULT_DB = Path("data/velov.duckdb")
-SKOPS_TRUSTED_TYPES = ["sklearn.ensemble._hist_gradient_boosting.predictor.TreePredictor"]
+LEARNING_RATE = 0.1
+MAX_ITER = 200
+# Heures de pointe en heure locale (départs au travail, retours) : là où se joue l'utilité du modèle.
+PEAK_HOURS = (7, 8, 9, 17, 18, 19)
 
 
 def sha256_of(path: Path) -> str:
@@ -73,6 +76,15 @@ def load_gold(db_path: Path = DEFAULT_DB, table: str = GOLD_TABLE) -> pd.DataFra
         con.close()
 
 
+def load_raw(data_path: Path | None = None, db_path: Path = DEFAULT_DB) -> pd.DataFrame:
+    """Table d'entraînement : le CSV du simulateur si `data_path` est donné, sinon la table gold."""
+    if data_path is None:
+        return load_gold(db_path)
+    if not data_path.exists():
+        raise FileNotFoundError(f"{data_path} introuvable : lancer d'abord `python -m velov.data`")
+    return pd.read_csv(data_path, parse_dates=["timestamp"])
+
+
 def fingerprint(df: pd.DataFrame) -> str:
     """Empreinte du contenu d'un DataFrame (équivalent de sha256_of pour une source qui n'est pas un fichier)."""
     ordered = df.sort_values(["station_id", "timestamp"]).reset_index(drop=True)
@@ -86,7 +98,7 @@ def build_pipeline(seed: int = 42) -> Pipeline:
             ("num", "passthrough", NUMERIC_FEATURES),
         ]
     )
-    model = HistGradientBoostingRegressor(max_iter=200, learning_rate=0.1, random_state=seed)
+    model = HistGradientBoostingRegressor(max_iter=MAX_ITER, learning_rate=LEARNING_RATE, random_state=seed)
     return Pipeline([("preprocess", preprocess), ("model", model)])
 
 
@@ -98,6 +110,23 @@ def temporal_split(df: pd.DataFrame, test_days: int) -> tuple[pd.DataFrame, pd.D
     if train.empty or test.empty:
         raise ValueError("Split vide : augmenter l'historique ou réduire test_days")
     return train, test
+
+
+def evaluate(pipeline: Pipeline, test_df: pd.DataFrame) -> dict[str, float]:
+    """MAE du modèle, de la baseline de persistance et du modèle aux heures de pointe, sur `test_df`.
+
+    Partagé avec velov.promote : challenger et champion sont mesurés par le MÊME calcul, sur la même fenêtre.
+    """
+    y_test = test_df[TARGET]
+    pred = pd.Series(np.clip(pipeline.predict(test_df[FEATURES]), 0, test_df["capacity"]), index=test_df.index)
+    peak = test_df["hour"].isin(PEAK_HOURS)
+    return {
+        "mae_model": float(mean_absolute_error(y_test, pred)),
+        # Baseline "persistance" : dans 1 h, il y aura autant de vélos que maintenant.
+        # Le modèle doit justifier sa complexité face à cette baseline (exigence EX-05).
+        "mae_baseline_persistence": float(mean_absolute_error(y_test, test_df["bikes_available"])),
+        "mae_model_peak_hours": float(mean_absolute_error(y_test[peak], pred[peak])) if peak.any() else float("nan"),
+    }
 
 
 def train(
@@ -164,12 +193,7 @@ def fit_and_write(
     pipeline = build_pipeline(seed)
     pipeline.fit(train_df[FEATURES], train_df[TARGET])
 
-    y_test = test_df[TARGET]
-    pred = np.clip(pipeline.predict(test_df[FEATURES]), 0, test_df["capacity"])
-    mae_model = float(mean_absolute_error(y_test, pred))
-    # Baseline "persistance" : dans 1 h, il y aura autant de vélos que maintenant.
-    # Le modèle doit justifier sa complexité face à cette baseline (exigence EX-05).
-    mae_baseline = float(mean_absolute_error(y_test, test_df["bikes_available"]))
+    maes = evaluate(pipeline, test_df)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     model_path = out_dir / MODEL_FILENAME
@@ -184,15 +208,26 @@ def fit_and_write(
         "features": FEATURES,
         "target": TARGET,
         "metrics": {
-            "mae_model": round(mae_model, 3),
-            "mae_baseline_persistence": round(mae_baseline, 3),
+            **{k: round(v, 3) for k, v in maes.items()},
             "test_days": test_days,
             "n_train": int(len(train_df)),
             "n_test": int(len(test_df)),
         },
+        "params": {
+            "model": "HistGradientBoostingRegressor",
+            "learning_rate": LEARNING_RATE,
+            "max_iter": MAX_ITER,
+            "max_leaf_nodes": pipeline.named_steps["model"].max_leaf_nodes,
+            "seed": seed,
+            "test_days": test_days,
+        },
         "artifact": {"file": MODEL_FILENAME, "sha256": sha256_of(model_path)},
         "data_source": source,
         "data_sha256": data_sha256,
+        "data_period": {
+            "start": raw["timestamp"].min().isoformat(),
+            "end": raw["timestamp"].max().isoformat(),
+        },
         "runtime": {
             "python": platform.python_version(),
             "scikit-learn": sklearn.__version__,
@@ -204,42 +239,6 @@ def fit_and_write(
     return metadata
 
 
-def log_to_mlflow(metadata: dict, out_dir: Path) -> None:
-    """Journalise le run et le modèle dans MLflow (aperçu S1, approfondi en S4)."""
-    import mlflow  # import local : MLflow n'est pas requis pour servir le modèle
-    from mlflow.models import infer_signature
-
-    pipeline = joblib.load(out_dir / MODEL_FILENAME)
-    sample = make_training_frame(
-        pd.DataFrame(
-            {
-                "station_id": [1, 1],
-                "timestamp": pd.to_datetime(["2026-06-01T06:00Z", "2026-06-01T07:00Z"]),
-                "capacity": [20, 20],
-                "bikes_available": [8, 5],
-                "temperature": [21.0, 22.0],
-                "is_raining": [False, False],
-            }
-        )
-    )[FEATURES]
-
-    mlflow.set_experiment("velov-availability")
-    with mlflow.start_run(run_name=f"v{metadata['model_version']}"):
-        mlflow.log_params({"model": "HistGradientBoostingRegressor", "test_days": metadata["metrics"]["test_days"]})
-        mlflow.log_metrics({k: v for k, v in metadata["metrics"].items() if k.startswith("mae")})
-        mlflow.sklearn.log_model(
-            pipeline,
-            name="model",
-            signature=infer_signature(sample, pipeline.predict(sample)),
-            input_example=sample,
-            # Depuis MLflow 3.x, sklearn est sérialisé par défaut en skops (format sûr,
-            # sans exécution de code arbitraire), plus en pickle. skops refuse les types
-            # qu'il ne connaît pas : on déclare explicitement ceux qu'on a vérifiés.
-            serialization_format="skops",
-            skops_trusted_types=SKOPS_TRUSTED_TYPES,
-        )
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Entraîne le modèle Vélo'v v0.")
     parser.add_argument("--data", type=Path, help="CSV du simulateur ; sans cette option, on lit la table gold")
@@ -247,23 +246,27 @@ def main() -> None:
     parser.add_argument("--test-days", type=int, default=14, help="jours de fin réservés au test temporel")
     parser.add_argument("--out", type=Path, default=Path("models"))
     parser.add_argument("--version", default="0.1.0")
-    parser.add_argument("--mlflow", action="store_true", help="journaliser aussi dans MLflow")
+    parser.add_argument("--seed", type=int, default=42, help="graine de l'entraînement (même seed, même modèle)")
+    parser.add_argument("--mlflow", action="store_true", help="tracer le run dans MLflow (MLFLOW_TRACKING_URI)")
     args = parser.parse_args()
 
     try:
         if args.data:
-            metadata = train(args.data, args.out, version=args.version, test_days=args.test_days)
+            metadata = train(args.data, args.out, args.version, args.test_days, args.seed)
         else:
-            metadata = train_from_gold(args.db, args.out, version=args.version, test_days=args.test_days)
+            metadata = train_from_gold(args.db, args.out, args.version, args.test_days, args.seed)
     except ContractError as exc:
         raise SystemExit(f"Entraînement refusé, {exc}") from exc
     m = metadata["metrics"]
     print(f"MAE modèle   : {m['mae_model']:.3f} vélos")
     print(f"MAE baseline : {m['mae_baseline_persistence']:.3f} vélos (persistance)")
+    print(f"MAE pointe   : {m['mae_model_peak_hours']:.3f} vélos (heures de pointe)")
     print(f"Artefact     : {args.out / MODEL_FILENAME} (sha256 {metadata['artifact']['sha256'][:12]}...)")
     if args.mlflow:
-        log_to_mlflow(metadata, args.out)
-        print("Run journalisé dans MLflow (voir `mlflow ui`)")
+        from velov.tracking import log_run  # import local : MLflow n'est jamais requis pour servir le modèle
+
+        run = log_run(metadata, args.out)
+        print(f"Run {run.run_id[:8]} tracé dans MLflow ({run.tracking_uri}), version {run.version} du registre")
 
 
 if __name__ == "__main__":
