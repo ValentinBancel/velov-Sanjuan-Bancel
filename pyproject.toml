@@ -15,7 +15,14 @@ where = ["src"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-q"
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # Dépréciation SQLAlchemy 2.1 déclenchée par les modèles internes de MLflow 3.16.1 (registre SQLite des tests).
+    # Pas notre code ; à retirer quand MLflow aura migré.
+    "ignore:The ``noload`` loader strategy is deprecated:DeprecationWarning",
+    # Avertissement émis par le wrapper pyfunc de sklearn dans MLflow 3.16.1 lui-même (annotations de son code).
+    "ignore:.*Any type hint is inferred as AnyType:UserWarning",
+]
 
 [tool.ruff]
 line-length = 120

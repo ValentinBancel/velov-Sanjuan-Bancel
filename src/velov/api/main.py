@@ -89,6 +89,23 @@ async def ready():
     return {"status": "ready", "model_version": STATE["metadata"]["model_version"]}
 
 
+@app.get("/v1/model")
+async def model_info():
+    """Identité du modèle servi : de la version jusqu'au run qui l'a produit (EX-13)."""
+    if STATE["model"] is None:
+        raise HTTPException(status_code=503, detail="Modèle non chargé")
+    meta = STATE["metadata"]
+    return {
+        "model_name": meta["model_name"],
+        "model_version": meta["model_version"],
+        "trained_at": meta["trained_at"],
+        "metrics": meta["metrics"],
+        "params": meta.get("params"),
+        "data_sha256": meta["data_sha256"],
+        "registry": meta.get("registry"),  # null si le modèle n'a pas été exporté du registre
+    }
+
+
 def _predict_one(request: PredictionRequest) -> float:
     """Calcul bloquant (CPU) : exécuté dans le pool de threads pour ne pas bloquer la boucle d'événements."""
     X = add_features(pd.DataFrame([request.model_dump()]))[FEATURES]
